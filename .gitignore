@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.*
+
+# Next.js
+.next/
+out/
+build/
+
+# Env files (segredos)
+.env
+.env.local
+.env.*.local
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Cache Python
+__pycache__/
+*.pyc
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dados sensíveis (xlsx original e seed gerado têm dados de cliente)
+supabase/seed-2026.sql
