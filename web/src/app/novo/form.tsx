@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { addRegistro, signOut, type NovoRegistroInput } from "./actions";
 
 const MODALIDADE_OPTIONS = [
@@ -74,11 +75,68 @@ type Toast =
   | { type: "error"; message: string }
   | null;
 
-export default function NovoForm({ sdrNome }: { sdrNome: string }) {
+type TodayMetrics = {
+  total: number;
+  atendidas: number;
+  marcacoes: number;
+  decisores: number;
+};
+
+export default function NovoForm({
+  sdrNome,
+  sdrId,
+}: {
+  sdrNome: string;
+  sdrId: string | null;
+}) {
   const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
   const [form, setForm] = useState<NovoRegistroInput>(initialState);
   const [toast, setToast] = useState<Toast>(null);
   const [isPending, startTransition] = useTransition();
+  const [metrics, setMetrics] = useState<TodayMetrics | null>(null);
+
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  const fetchMetrics = useCallback(async () => {
+    if (!sdrId) return;
+    const { data } = await supabase
+      .from("log_sdr")
+      .select("call_result, lead_result, decisor")
+      .eq("sdr_id", sdrId)
+      .eq("data_registro", today);
+
+    const rows = data ?? [];
+    setMetrics({
+      total: rows.length,
+      atendidas: rows.filter((r) => r.call_result === "Ligações Atendidas").length,
+      marcacoes: rows.filter(
+        (r) =>
+          r.lead_result === "Marcações Prospecção" ||
+          r.lead_result === "Marcações Marketing",
+      ).length,
+      decisores: rows.filter((r) => r.decisor === "Sim").length,
+    });
+  }, [sdrId, today, supabase]);
+
+  useEffect(() => {
+    fetchMetrics();
+  }, [fetchMetrics]);
+
+  useEffect(() => {
+    if (!sdrId) return;
+    const ch = supabase
+      .channel("log_sdr_hoje")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "log_sdr" },
+        () => fetchMetrics(),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [supabase, sdrId, fetchMetrics]);
 
   function update<K extends keyof NovoRegistroInput>(
     key: K,
@@ -94,6 +152,7 @@ export default function NovoForm({ sdrNome }: { sdrNome: string }) {
       if (result.ok) {
         setToast({ type: "success", message: "Registro adicionado!" });
         setForm((prev) => ({ ...prev, lead_result: "" }));
+        fetchMetrics();
       } else {
         setToast({ type: "error", message: result.error });
       }
@@ -135,6 +194,23 @@ export default function NovoForm({ sdrNome }: { sdrNome: string }) {
           </button>
         </div>
       </header>
+
+      {metrics && (
+        <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Hoje
+            </p>
+            <span className="text-[10px] text-slate-300">tempo real</span>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            <MiniStat label="Ligações" value={metrics.total} color="#16a34a" />
+            <MiniStat label="Atendidas" value={metrics.atendidas} color="#0284c7" />
+            <MiniStat label="Marcações" value={metrics.marcacoes} color="#f59e0b" />
+            <MiniStat label="Decisores" value={metrics.decisores} color="#7c3aed" />
+          </div>
+        </div>
+      )}
 
       <form
         onSubmit={handleSubmit}
@@ -225,6 +301,25 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
         {label}
       </label>
       {children}
+    </div>
+  );
+}
+
+function MiniStat({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color: string;
+}) {
+  return (
+    <div className="rounded-lg bg-slate-50 px-2 py-2 text-center">
+      <p className="text-2xl font-bold leading-none" style={{ color }}>
+        {value}
+      </p>
+      <p className="mt-1 text-[10px] font-medium text-slate-500">{label}</p>
     </div>
   );
 }

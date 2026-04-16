@@ -15,9 +15,14 @@ export default async function NovoPage() {
 
   const { data: sdr } = await supabase
     .from("sdrs")
-    .select("nome")
+    .select("id, nome")
     .eq("user_id", user.id)
     .single();
 
-  return <NovoForm sdrNome={sdr?.nome ?? user.email ?? "SDR"} />;
+  return (
+    <NovoForm
+      sdrId={sdr?.id ?? null}
+      sdrNome={sdr?.nome ?? user.email ?? "SDR"}
+    />
+  );
 }
