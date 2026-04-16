@@ -32,6 +32,8 @@ type LogRow = {
   nicho: string | null;
 };
 
+type Canal = "todos" | "Quente" | "Frio";
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -40,17 +42,18 @@ function fmtDate(iso: string) {
   return `${d}/${m}`;
 }
 
-function pct(n: number, d: number) {
-  if (d === 0) return "0.0";
-  return ((n / d) * 100).toFixed(1);
-}
-
 function defaultRange(): [string, string] {
   const now = new Date();
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, "0");
   return [`${y}-${m}-01`, now.toISOString().slice(0, 10)];
 }
+
+const CANAL_LABELS: Record<Canal, string> = {
+  todos: "Geral",
+  Quente: "Inbound",
+  Frio: "Outbound",
+};
 
 // ---------------------------------------------------------------------------
 // Main
@@ -68,6 +71,7 @@ export default function Dashboard({
   const [loading, setLoading] = useState(true);
   const [[dateFrom, dateTo], setRange] = useState(defaultRange);
   const [empresaFiltro, setEmpresaFiltro] = useState<string>("todas");
+  const [canalFiltro, setCanalFiltro] = useState<Canal>("todos");
 
   // Lista de empresas distintas para popular o dropdown
   const empresasDisponiveis = useMemo(() => {
@@ -78,11 +82,21 @@ export default function Dashboard({
     return [...set].sort();
   }, [rows]);
 
-  // Rows aplicando o filtro de empresa (base pra todas as métricas abaixo)
+  // Rows após filtro de empresa
   const filteredRows = useMemo(() => {
     if (empresaFiltro === "todas") return rows;
     return rows.filter((r) => r.empresa === empresaFiltro);
   }, [rows, empresaFiltro]);
+
+  // Rows após filtro de canal (Inbound/Outbound) — base pra todas as métricas abaixo
+  const displayRows = useMemo(() => {
+    if (canalFiltro === "todos") return filteredRows;
+    return filteredRows.filter((r) => r.temperatura === canalFiltro);
+  }, [filteredRows, canalFiltro]);
+
+  const canalLabel = CANAL_LABELS[canalFiltro];
+  const showMkt = canalFiltro === "todos" || canalFiltro === "Quente";
+  const showProsp = canalFiltro === "todos" || canalFiltro === "Frio";
 
   // Quick presets
   function setPreset(p: "hoje" | "semana" | "mes") {
@@ -134,52 +148,34 @@ export default function Dashboard({
   }, [supabase, fetchData]);
 
   // -------------------------------------------------------------------------
-  // Computed metrics
+  // Computed metrics (sobre displayRows — já filtrado por empresa e canal)
   // -------------------------------------------------------------------------
-  const total = filteredRows.length;
-
-  // Quente
-  const quente = useMemo(() => filteredRows.filter((r) => r.temperatura === "Quente"), [filteredRows]);
-  const frio = useMemo(() => filteredRows.filter((r) => r.temperatura === "Frio"), [filteredRows]);
-
-  const totalQuente = quente.length;
-  const atendidasQuente = quente.filter((r) => r.call_result === "Ligações Atendidas").length;
-  const naoAtendidasQuente = quente.filter((r) => r.call_result === "Não Atendidas").length;
-  const ligarNovamenteQuente = quente.filter((r) => r.call_result === "Ligar Novamente").length;
-  const cttWhatsQuente = quente.filter((r) => r.call_result === "Em contato Whatsapp").length;
-  const cttEmailQuente = quente.filter((r) => r.call_result === "Em contato E-mail").length;
-  const contatosQuente = atendidasQuente + cttWhatsQuente + cttEmailQuente;
-  const decisoresQuente = quente.filter((r) => r.decisor === "Sim").length;
-
-  // Frio
-  const totalFrio = frio.length;
-  const atendidasFrio = frio.filter((r) => r.call_result === "Ligações Atendidas").length;
-  const naoAtendidasFrio = frio.filter((r) => r.call_result === "Não Atendidas").length;
-  const ligarNovamenteFrio = frio.filter((r) => r.call_result === "Ligar Novamente").length;
-  const cttWhatsFrio = frio.filter((r) => r.call_result === "Em contato Whatsapp").length;
-  const cttEmailFrio = frio.filter((r) => r.call_result === "Em contato E-mail").length;
-  const contatosFrio = atendidasFrio + cttWhatsFrio + cttEmailFrio;
+  const total = displayRows.length;
+  const atendidas = displayRows.filter((r) => r.call_result === "Ligações Atendidas").length;
+  const ligarNovamente = displayRows.filter((r) => r.call_result === "Ligar Novamente").length;
+  const cttWhats = displayRows.filter((r) => r.call_result === "Em contato Whatsapp").length;
+  const cttEmail = displayRows.filter((r) => r.call_result === "Em contato E-mail").length;
+  const contatos = atendidas + cttWhats + cttEmail;
+  const decisores = displayRows.filter((r) => r.decisor === "Sim").length;
 
   // Marcações
-  const marcProspeccao = filteredRows.filter((r) => r.lead_result === "Marcações Prospecção").length;
-  const marcMarketing = filteredRows.filter((r) => r.lead_result === "Marcações Marketing").length;
+  const marcProspeccao = displayRows.filter((r) => r.lead_result === "Marcações Prospecção").length;
+  const marcMarketing = displayRows.filter((r) => r.lead_result === "Marcações Marketing").length;
   const marcTotal = marcProspeccao + marcMarketing;
 
   // Modalidade
-  const discovery = filteredRows.filter((r) => r.modalidade_ligacao === "Discovery Call");
-  const tentando = filteredRows.filter((r) => r.modalidade_ligacao === "Tentando Contato");
+  const discovery = displayRows.filter((r) => r.modalidade_ligacao === "Discovery Call");
+  const tentando = displayRows.filter((r) => r.modalidade_ligacao === "Tentando Contato");
 
-  // Taxa atendimento quente
-  const taxaAtendQuente = totalQuente > 0 ? (contatosQuente / totalQuente) * 100 : 0;
-
-  // Taxa marcação
-  const taxaMarcLeads = quente.length > 0 ? (marcTotal / quente.length) * 100 : 0;
-  const taxaMarcContato = contatosQuente > 0 ? (marcTotal / contatosQuente) * 100 : 0;
+  // Taxas
+  const taxaAtend = total > 0 ? (contatos / total) * 100 : 0;
+  const taxaMarcLeads = total > 0 ? (marcTotal / total) * 100 : 0;
+  const taxaMarcContato = contatos > 0 ? (marcTotal / contatos) * 100 : 0;
 
   // Perdidos
   const perdidos = useMemo(() => {
     const map = new Map<string, number>();
-    filteredRows.forEach((r) => {
+    displayRows.forEach((r) => {
       if (
         r.lead_result &&
         r.lead_result !== "" &&
@@ -191,15 +187,12 @@ export default function Dashboard({
       }
     });
     return [...map.entries()].sort((a, b) => b[1] - a[1]);
-  }, [filteredRows]);
+  }, [displayRows]);
   const totalPerdido = perdidos.reduce((s, [, c]) => s + c, 0);
-
-  // Taxa perdidos / contato
-  const totalContatos = contatosQuente + contatosFrio;
-  const taxaPerdidosContato = totalContatos > 0 ? (totalPerdido / totalContatos) * 100 : 0;
+  const taxaPerdidosContato = contatos > 0 ? (totalPerdido / contatos) * 100 : 0;
 
   // -------------------------------------------------------------------------
-  // Chart data: por dia
+  // Chart data: por dia (respeita todos os filtros)
   // -------------------------------------------------------------------------
   const dailyData = useMemo(() => {
     const map = new Map<
@@ -214,11 +207,13 @@ export default function Dashboard({
         cttEmail: number;
         decisores: number;
         marcacoes: number;
+        marcMkt: number;
+        marcProsp: number;
         marcAcum: number;
       }
     >();
 
-    const sorted = [...filteredRows].sort((a, b) => a.data_registro.localeCompare(b.data_registro));
+    const sorted = [...displayRows].sort((a, b) => a.data_registro.localeCompare(b.data_registro));
     sorted.forEach((r) => {
       const d = r.data_registro;
       const prev = map.get(d) ?? {
@@ -231,6 +226,8 @@ export default function Dashboard({
         cttEmail: 0,
         decisores: 0,
         marcacoes: 0,
+        marcMkt: 0,
+        marcProsp: 0,
         marcAcum: 0,
       };
       prev.total++;
@@ -240,11 +237,14 @@ export default function Dashboard({
       if (r.call_result === "Em contato Whatsapp") prev.cttWhats++;
       if (r.call_result === "Em contato E-mail") prev.cttEmail++;
       if (r.decisor === "Sim") prev.decisores++;
-      if (
-        r.lead_result === "Marcações Prospecção" ||
-        r.lead_result === "Marcações Marketing"
-      )
+      if (r.lead_result === "Marcações Marketing") {
         prev.marcacoes++;
+        prev.marcMkt++;
+      }
+      if (r.lead_result === "Marcações Prospecção") {
+        prev.marcacoes++;
+        prev.marcProsp++;
+      }
       map.set(d, prev);
     });
 
@@ -255,48 +255,7 @@ export default function Dashboard({
       d.marcAcum = acum;
     });
     return arr;
-  }, [filteredRows]);
-
-  // Daily quente only
-  const dailyQuente = useMemo(() => {
-    const map = new Map<string, {
-      date: string;
-      total: number;
-      atendidas: number;
-      naoAtendidas: number;
-      ligarNovamente: number;
-      cttWhats: number;
-      cttEmail: number;
-      decisores: number;
-      marcMkt: number;
-    }>();
-
-    quente.forEach((r) => {
-      const d = r.data_registro;
-      const prev = map.get(d) ?? {
-        date: fmtDate(d),
-        total: 0,
-        atendidas: 0,
-        naoAtendidas: 0,
-        ligarNovamente: 0,
-        cttWhats: 0,
-        cttEmail: 0,
-        decisores: 0,
-        marcMkt: 0,
-      };
-      prev.total++;
-      if (r.call_result === "Ligações Atendidas") prev.atendidas++;
-      if (r.call_result === "Não Atendidas") prev.naoAtendidas++;
-      if (r.call_result === "Ligar Novamente") prev.ligarNovamente++;
-      if (r.call_result === "Em contato Whatsapp") prev.cttWhats++;
-      if (r.call_result === "Em contato E-mail") prev.cttEmail++;
-      if (r.decisor === "Sim") prev.decisores++;
-      if (r.lead_result === "Marcações Marketing") prev.marcMkt++;
-      map.set(d, prev);
-    });
-
-    return [...map.values()];
-  }, [quente]);
+  }, [displayRows]);
 
   function handleSignOut() {
     signOut().then(() => {
@@ -318,6 +277,8 @@ export default function Dashboard({
             {sdrNome}{" "}
             {sdrRole === "gestor" || sdrRole === "admin" ? "· visão geral" : ""}
             {empresaFiltro !== "todas" ? ` · ${empresaFiltro}` : " · todas as empresas"}
+            {" · "}
+            {canalLabel}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -330,7 +291,7 @@ export default function Dashboard({
         </div>
       </header>
 
-      {/* Date picker */}
+      {/* Date picker + filtros */}
       <div className="mb-6 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5">
         <span className="text-xs font-semibold text-slate-500">Período:</span>
         {(["hoje", "semana", "mes"] as const).map((p) => (
@@ -370,6 +331,23 @@ export default function Dashboard({
             </option>
           ))}
         </select>
+        <span className="mx-1 text-slate-300">|</span>
+        <span className="text-xs font-semibold text-slate-500">Canal:</span>
+        <div className="flex gap-1">
+          {(["todos", "Quente", "Frio"] as const).map((c) => (
+            <button
+              key={c}
+              onClick={() => setCanalFiltro(c)}
+              className={`rounded px-2.5 py-1 text-xs font-medium transition ${
+                canalFiltro === c
+                  ? "bg-indigo-600 text-white"
+                  : "text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              {CANAL_LABELS[c]}
+            </button>
+          ))}
+        </div>
       </div>
 
       {loading ? (
@@ -377,17 +355,17 @@ export default function Dashboard({
       ) : (
         <>
           {/* ============================================================= */}
-          {/* SEÇÃO 1 — STATUS LIGAÇÃO QUENTE                               */}
+          {/* SEÇÃO 1 — STATUS LIGAÇÃO                                      */}
           {/* ============================================================= */}
-          <SectionTitle>Status Ligação Quente</SectionTitle>
+          <SectionTitle>Status Ligação {canalLabel}</SectionTitle>
 
-          {/* Taxa Atendimento Quente */}
+          {/* Taxa Atendimento */}
           <div className="mb-4 flex items-center gap-4">
             <div className="flex-1">
-              <PercentBar value={taxaAtendQuente} color="#ef4444" />
+              <PercentBar value={taxaAtend} color="#ef4444" />
             </div>
             <span className="text-2xl font-bold text-red-500">
-              {taxaAtendQuente.toFixed(1)}%
+              {taxaAtend.toFixed(1)}%
             </span>
           </div>
 
@@ -395,17 +373,17 @@ export default function Dashboard({
           <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
             {/* Stats */}
             <div className="grid grid-cols-2 gap-3">
-              <BigStat label="Total Ligações Quente" value={totalQuente} color="#16a34a" />
-              <BigStat label="Ligar Novamente" value={ligarNovamenteQuente} color="#16a34a" />
-              <BigStat label="Em contato Whatsapp" value={cttWhatsQuente} color="#16a34a" />
-              <BigStat label="Em contato E-mail" value={cttEmailQuente} color="#16a34a" />
+              <BigStat label={`Total Ligações ${canalLabel}`} value={total} color="#16a34a" />
+              <BigStat label="Ligar Novamente" value={ligarNovamente} color="#16a34a" />
+              <BigStat label="Em contato Whatsapp" value={cttWhats} color="#16a34a" />
+              <BigStat label="Em contato E-mail" value={cttEmail} color="#16a34a" />
             </div>
 
-            {/* Taxa Atendimento Quente por dia */}
+            {/* Taxa Atendimento por dia */}
             <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="mb-2 text-xs font-semibold text-slate-500">Taxa Atendimento Quente</p>
+              <p className="mb-2 text-xs font-semibold text-slate-500">Taxa Atendimento {canalLabel}</p>
               <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={dailyQuente}>
+                <BarChart data={dailyData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                   <YAxis tick={{ fontSize: 10 }} />
@@ -415,11 +393,11 @@ export default function Dashboard({
               </ResponsiveContainer>
             </div>
 
-            {/* Análise Ligações Quente */}
+            {/* Análise Ligações */}
             <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="mb-2 text-xs font-semibold text-slate-500">Análise Ligações (Quente)</p>
+              <p className="mb-2 text-xs font-semibold text-slate-500">Análise Ligações ({canalLabel})</p>
               <ResponsiveContainer width="100%" height={180}>
-                <LineChart data={dailyQuente}>
+                <LineChart data={dailyData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                   <YAxis tick={{ fontSize: 10 }} />
@@ -473,35 +451,40 @@ export default function Dashboard({
           </div>
 
           {/* ============================================================= */}
-          {/* SEÇÃO 3 — STATUS MARCAÇÃO (QUENTE) + TAXAS                    */}
+          {/* SEÇÃO 3 — STATUS MARCAÇÃO + TAXAS                             */}
           {/* ============================================================= */}
-          <SectionTitle>Status Marcação (Quente)</SectionTitle>
+          <SectionTitle>Status Marcação ({canalLabel})</SectionTitle>
 
           <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
             {/* Stats lado esquerdo */}
             <div className="space-y-3">
-              <StatRow label="Leads Total" value={quente.length} />
-              <StatRow label="Total Ligações Quente" value={totalQuente} />
-              <StatRow label="Ligações Atendidas Quente" value={atendidasQuente} />
-              <StatRow label="Decisores Alcançados" value={decisoresQuente} />
-              <StatRow label="Marcações Marketing" value={marcMarketing} />
-              <StatRow label="Marcações Prospecção" value={marcProspeccao} />
+              <StatRow label="Leads Total" value={total} />
+              <StatRow label={`Total Ligações ${canalLabel}`} value={total} />
+              <StatRow label={`Ligações Atendidas ${canalLabel}`} value={atendidas} />
+              <StatRow label="Decisores Alcançados" value={decisores} />
+              {showMkt && <StatRow label="Marcações Marketing (Inbound)" value={marcMarketing} />}
+              {showProsp && <StatRow label="Marcações Prospecção (Outbound)" value={marcProspeccao} />}
             </div>
 
-            {/* Gráfico linha status ligação quente */}
+            {/* Gráfico linha status ligação */}
             <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="mb-2 text-xs font-semibold text-slate-500">Status Ligação (Quente)</p>
+              <p className="mb-2 text-xs font-semibold text-slate-500">Status Ligação ({canalLabel})</p>
               <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={dailyQuente}>
+                <LineChart data={dailyData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                   <YAxis tick={{ fontSize: 10 }} />
                   <Tooltip contentStyle={{ fontSize: 12 }} />
                   <Legend wrapperStyle={{ fontSize: 10 }} />
-                  <Line type="monotone" dataKey="total" name="Total Quente" stroke="#16a34a" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="total" name={`Total ${canalLabel}`} stroke="#16a34a" strokeWidth={2} dot={{ r: 3 }} />
                   <Line type="monotone" dataKey="atendidas" name="Atendidas" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} />
                   <Line type="monotone" dataKey="decisores" name="Decisores" stroke="#8b5cf6" strokeWidth={1} dot={{ r: 2 }} />
-                  <Line type="monotone" dataKey="marcMkt" name="Marcações MKT" stroke="#06b6d4" strokeWidth={1} dot={{ r: 2 }} />
+                  {showMkt && (
+                    <Line type="monotone" dataKey="marcMkt" name="Marcações MKT" stroke="#06b6d4" strokeWidth={1} dot={{ r: 2 }} />
+                  )}
+                  {showProsp && (
+                    <Line type="monotone" dataKey="marcProsp" name="Marcações Prospecção" stroke="#0ea5e9" strokeWidth={1} dot={{ r: 2 }} />
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -509,7 +492,7 @@ export default function Dashboard({
             {/* Taxas marcação */}
             <div className="space-y-4">
               <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <p className="mb-1 text-xs font-semibold text-slate-500">Taxa Marcação (Quente)</p>
+                <p className="mb-1 text-xs font-semibold text-slate-500">Taxa Marcação ({canalLabel})</p>
                 <div className="flex items-end gap-4">
                   <div className="flex-1 text-center">
                     <div className="mx-auto mb-1 w-16 overflow-hidden rounded bg-slate-100">
@@ -566,7 +549,7 @@ export default function Dashboard({
           </div>
 
           {/* ============================================================= */}
-          {/* SEÇÃO 5 — LIGAÇÕES POR DIA (GERAL)                            */}
+          {/* SEÇÃO 5 — LIGAÇÕES POR DIA                                    */}
           {/* ============================================================= */}
           <SectionTitle>Ligações por Dia</SectionTitle>
 
@@ -628,7 +611,7 @@ export default function Dashboard({
 
           {/* Footer */}
           <div className="text-center text-[11px] text-slate-300">
-            {total} registros · {dateFrom} a {dateTo} · {empresaFiltro === "todas" ? "todas as empresas" : empresaFiltro} · atualização em tempo real
+            {total} registros · {dateFrom} a {dateTo} · {empresaFiltro === "todas" ? "todas as empresas" : empresaFiltro} · {canalLabel} · atualização em tempo real
           </div>
         </>
       )}

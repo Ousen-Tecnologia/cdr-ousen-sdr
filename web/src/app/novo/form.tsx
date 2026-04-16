@@ -4,6 +4,11 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addRegistro, signOut, type NovoRegistroInput } from "./actions";
 
+const MODALIDADE_OPTIONS = [
+  { value: "Discovery Call", label: "Discovery Call" },
+  { value: "Tentando Contato", label: "Tentando Contato" },
+];
+
 const CALL_OPTIONS = [
   { value: "Ligar Novamente", label: "Ligar Novamente" },
   { value: "Não Atendidas", label: "Não Atendida" },
@@ -55,6 +60,7 @@ const NICHO_OPTIONS = [
 ];
 
 const initialState: NovoRegistroInput = {
+  modalidade_ligacao: MODALIDADE_OPTIONS[0].value,
   call_result: CALL_OPTIONS[0].value,
   lead_result: "",
   temperatura: TEMP_OPTIONS[0].value,
@@ -113,19 +119,35 @@ export default function NovoForm({ sdrNome }: { sdrNome: string }) {
             nova ligação
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleSignOut}
-          className="text-xs font-medium text-slate-500 hover:text-slate-800"
-        >
-          Sair
-        </button>
+        <div className="flex items-center gap-3">
+          <a
+            href="/bi"
+            className="text-xs font-medium text-indigo-600 hover:text-indigo-800"
+          >
+            Dashboard
+          </a>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="text-xs font-medium text-slate-500 hover:text-slate-800"
+          >
+            Sair
+          </button>
+        </div>
       </header>
 
       <form
         onSubmit={handleSubmit}
         className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
       >
+        <Field label="Modalidade Ligação">
+          <Select
+            value={form.modalidade_ligacao}
+            onChange={(v) => update("modalidade_ligacao", v)}
+            options={MODALIDADE_OPTIONS}
+          />
+        </Field>
+
         <Field label="Resultado Ligação">
           <Select
             value={form.call_result}

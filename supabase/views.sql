@@ -15,6 +15,7 @@ select
   data_registro,
   empresa,
   sdr_id,
+  modalidade_ligacao,
 
   -- Totais gerais
   count(*)                                                          as total_ligacoes,
@@ -59,7 +60,7 @@ select
   count(*) filter (where lead_result = 'MKT - Marcou R1 e Sumiu')   as mkt_marcou_r1_sumiu
 
 from public.log_sdr
-group by data_registro, empresa, sdr_id;
+group by data_registro, empresa, sdr_id, modalidade_ligacao;
 
 -- -----------------------------------------------------------------------------
 -- v_frio_quente  →  substitui aba "FriovsQuente"
@@ -71,6 +72,7 @@ select
   data_registro,
   empresa,
   sdr_id,
+  modalidade_ligacao,
 
   -- Totais por temperatura
   count(*) filter (where temperatura = 'Quente')                    as total_ligacoes_quente,
@@ -118,4 +120,4 @@ select
                       or lead_result like 'MKT - Marc%')            as leads_total
 
 from public.log_sdr
-group by data_registro, empresa, sdr_id;
+group by data_registro, empresa, sdr_id, modalidade_ligacao;

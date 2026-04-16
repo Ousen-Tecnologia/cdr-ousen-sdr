@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 
 export type NovoRegistroInput = {
+  modalidade_ligacao: string;
   call_result: string;
   lead_result: string | null;
   temperatura: string;
@@ -47,6 +48,7 @@ export async function addRegistro(
   const { error } = await supabase.from("log_sdr").insert({
     data_registro: dataRegistro,
     sdr_id: sdr.id,
+    modalidade_ligacao: input.modalidade_ligacao,
     call_result: input.call_result,
     lead_result: input.lead_result || null,
     temperatura: input.temperatura,
