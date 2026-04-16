@@ -79,7 +79,6 @@ type TodayMetrics = {
   total: number;
   atendidas: number;
   marcacoes: number;
-  decisores: number;
 };
 
 export default function NovoForm({
@@ -102,7 +101,7 @@ export default function NovoForm({
     if (!sdrId) return;
     const { data } = await supabase
       .from("log_sdr")
-      .select("call_result, lead_result, decisor")
+      .select("call_result, lead_result")
       .eq("sdr_id", sdrId)
       .eq("data_registro", today);
 
@@ -115,7 +114,6 @@ export default function NovoForm({
           r.lead_result === "Marcações Prospecção" ||
           r.lead_result === "Marcações Marketing",
       ).length,
-      decisores: rows.filter((r) => r.decisor === "Sim").length,
     });
   }, [sdrId, today, supabase]);
 
@@ -203,11 +201,10 @@ export default function NovoForm({
             </p>
             <span className="text-[10px] text-slate-300">tempo real</span>
           </div>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <MiniStat label="Ligações" value={metrics.total} color="#16a34a" />
             <MiniStat label="Atendidas" value={metrics.atendidas} color="#0284c7" />
             <MiniStat label="Marcações" value={metrics.marcacoes} color="#f59e0b" />
-            <MiniStat label="Decisores" value={metrics.decisores} color="#7c3aed" />
           </div>
         </div>
       )}
