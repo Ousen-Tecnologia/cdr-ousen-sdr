@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { signOut } from "../novo/actions";
+import { fetchLogs, type LogRow } from "./actions";
 import {
   LineChart,
   Line,
@@ -20,18 +21,6 @@ import {
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-type LogRow = {
-  id: number;
-  data_registro: string;
-  call_result: string;
-  lead_result: string | null;
-  decisor: string | null;
-  temperatura: string | null;
-  modalidade_ligacao: string;
-  empresa: string | null;
-  nicho: string | null;
-};
-
 type Canal = "todos" | "Quente" | "Frio";
 
 // ---------------------------------------------------------------------------
@@ -42,18 +31,13 @@ function fmtDate(iso: string) {
   return `${d}/${m}`;
 }
 
-function defaultRange(): [string, string] {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  return [`${y}-${m}-01`, now.toISOString().slice(0, 10)];
-}
-
 const CANAL_LABELS: Record<Canal, string> = {
   todos: "Geral",
   Quente: "Inbound",
   Frio: "Outbound",
 };
+
+const EMPRESAS_FIXAS = ["Ousen", "Arven"];
 
 // ---------------------------------------------------------------------------
 // Main
@@ -61,21 +45,26 @@ const CANAL_LABELS: Record<Canal, string> = {
 export default function Dashboard({
   sdrNome,
   sdrRole,
+  initialRows,
+  initialRange,
 }: {
   sdrNome: string;
   sdrRole: string;
+  initialRows: LogRow[];
+  initialRange: [string, string];
 }) {
   const router = useRouter();
   const supabase = createClient();
-  const [rows, setRows] = useState<LogRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [[dateFrom, dateTo], setRange] = useState(defaultRange);
+  const [rows, setRows] = useState<LogRow[]>(initialRows);
+  const [loading, setLoading] = useState(false);
+  const [[dateFrom, dateTo], setRange] = useState<[string, string]>(initialRange);
   const [empresaFiltro, setEmpresaFiltro] = useState<string>("todas");
   const [canalFiltro, setCanalFiltro] = useState<Canal>("todos");
+  const didMountRef = useRef(false);
 
-  // Lista de empresas distintas para popular o dropdown
+  // Lista de empresas: fixas + quaisquer extras que apareçam nos registros
   const empresasDisponiveis = useMemo(() => {
-    const set = new Set<string>();
+    const set = new Set<string>(EMPRESAS_FIXAS);
     rows.forEach((r) => {
       if (r.empresa && r.empresa.trim() !== "") set.add(r.empresa);
     });
@@ -113,39 +102,43 @@ export default function Dashboard({
     setRange([`${y}-${m}-01`, to]);
   }
 
-  // Fetch
-  const fetchData = useCallback(async () => {
+  // Refetch via server action (corre no Vercel — DNS estável)
+  const reload = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from("log_sdr")
-      .select(
-        "id, data_registro, call_result, lead_result, decisor, temperatura, modalidade_ligacao, empresa, nicho",
-      )
-      .gte("data_registro", dateFrom)
-      .lte("data_registro", dateTo)
-      .order("data_registro", { ascending: true });
-    setRows(data ?? []);
-    setLoading(false);
-  }, [dateFrom, dateTo, supabase]);
+    try {
+      const data = await fetchLogs(dateFrom, dateTo);
+      setRows(data);
+    } catch (e) {
+      console.error("[bi/dashboard] fetchLogs failed:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [dateFrom, dateTo]);
 
+  // Primeiro render já vem com initialRows do SSR — só refaz quando a data muda
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+    reload();
+  }, [reload]);
 
-  // Realtime
+  // Realtime — best-effort. Se a conexão WS falhar por DNS, apenas não há live update;
+  // a página inicial continua funcionando.
   useEffect(() => {
     const ch = supabase
       .channel("log_sdr_rt")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "log_sdr" },
-        () => fetchData(),
+        () => reload(),
       )
       .subscribe();
     return () => {
       supabase.removeChannel(ch);
     };
-  }, [supabase, fetchData]);
+  }, [supabase, reload]);
 
   // -------------------------------------------------------------------------
   // Computed metrics (sobre displayRows — já filtrado por empresa e canal)
